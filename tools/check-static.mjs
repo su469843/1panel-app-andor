@@ -164,56 +164,158 @@ for (const { file, pkg, src } of fileInfo) {
   }
 }
 
-/* ---------------- 4. 括号平衡（跳过字符串与注释） ---------------- */
+/* ---------------- 4. 词法扫描：注释与字符串 ---------------- */
+// 返回「真正的代码」区间 [from, to, 起始行]，注释与字符串字面量已被剔除。
+// 同时校验块注释提前结束 / 注释未闭合 / 字符串未闭合。
+//
+// 为什么需要这一节：KDoc 正文里只要出现 `*/`（例如中文文档习惯写 **/api/v1**），
+// 注释就会在那里提前终止，后面的正文被当成代码 —— 编译器报一堆
+// "Expecting a top level declaration"，但括号仍然平衡，光靠括号检查抓不到。
+function lexKotlin(file) {
+  const src = fs.readFileSync(file, 'utf8');
+  const rel = path.relative(ROOT, file);
+  const ranges = [];
+  let i = 0;
+  let line = 1;
+  let segStart = 0;
+  let segLine = 1;
+
+  const flush = (end) => { if (end > segStart) ranges.push([segStart, end, segLine]); };
+  const resume = () => { segStart = i; segLine = line; };
+
+  while (i < src.length) {
+    const c = src[i];
+    const next = src[i + 1];
+
+    if (c === '\n') { line++; i++; continue; }
+
+    // 行注释
+    if (c === '/' && next === '/') {
+      flush(i);
+      while (i < src.length && src[i] !== '\n') i++;
+      resume();
+      continue;
+    }
+
+    // 块注释（Kotlin 允许嵌套 /* /* */ */）
+    if (c === '/' && next === '*') {
+      flush(i);
+      const startLine = line;
+      // 注释是否独占行首（`/*` 之前只有空白）。只有这种注释才要求 `*/` 收尾后本行无内容；
+      // `val x = 1 /* 说明 */` 这类行内注释不受影响。
+      let ls = i;
+      while (ls > 0 && src[ls - 1] !== '\n') ls--;
+      const atLineStart = src.slice(ls, i).trim() === '';
+      i += 2;
+      let depth = 1;
+      while (i < src.length && depth > 0) {
+        if (src[i] === '\n') { line++; i++; continue; }
+        if (src[i] === '/' && src[i + 1] === '*') { depth++; i += 2; continue; }
+        if (src[i] === '*' && src[i + 1] === '/') {
+          depth--;
+          i += 2;
+          // 独占行首的块注释，结束时本行不应再有任何内容。
+          // 否则说明注释正文里混进了 `*/`，注释被提前截断，后面的正文会被当成代码。
+          if (depth === 0 && atLineStart) {
+            const eol = src.indexOf('\n', i);
+            const tail = src.slice(i, eol === -1 ? src.length : eol);
+            if (tail.trim() !== '') {
+              problems.push(
+                `块注释提前结束 ${rel}:${line} —— '*/' 之后同一行还有内容「${tail.trim().slice(0, 40)}」。` +
+                `注释正文里出现 '*/'（如 **/api/v1**）会截断注释，请改写为 \`/api/v1\` 之类。`
+              );
+            }
+          }
+          continue;
+        }
+        i++;
+      }
+      if (depth > 0) problems.push(`块注释未闭合 ${rel}:${startLine}`);
+      resume();
+      continue;
+    }
+
+    // 原始字符串 """..."""
+    if (c === '"' && src.slice(i, i + 3) === '"""') {
+      flush(i);
+      const startLine = line;
+      i += 3;
+      while (i < src.length && src.slice(i, i + 3) !== '"""') {
+        if (src[i] === '\n') line++;
+        i++;
+      }
+      if (i >= src.length) problems.push(`原始字符串未闭合 ${rel}:${startLine}`);
+      else i += 3;
+      resume();
+      continue;
+    }
+
+    // 普通字符串（不能跨行）
+    if (c === '"') {
+      flush(i);
+      const startLine = line;
+      i++;
+      let closed = false;
+      while (i < src.length && src[i] !== '\n') {
+        if (src[i] === '\\') { i += 2; continue; }
+        if (src[i] === '"') { closed = true; i++; break; }
+        i++;
+      }
+      if (!closed) problems.push(`字符串未闭合 ${rel}:${startLine}`);
+      resume();
+      continue;
+    }
+
+    // 字符字面量
+    if (c === "'") {
+      flush(i);
+      const startLine = line;
+      i++;
+      let closed = false;
+      while (i < src.length && src[i] !== '\n') {
+        if (src[i] === '\\') { i += 2; continue; }
+        if (src[i] === "'") { closed = true; i++; break; }
+        i++;
+      }
+      if (!closed) problems.push(`字符字面量未闭合 ${rel}:${startLine}`);
+      resume();
+      continue;
+    }
+
+    i++;
+  }
+  flush(src.length);
+  return ranges;
+}
+
+/* ---------------- 5. 括号平衡（只在代码区间内计数） ---------------- */
+const codeFiles = [...ktFiles, ...gradleFiles];
 function balance(file) {
   const src = fs.readFileSync(file, 'utf8');
   const pairs = { ')': '(', ']': '[', '}': '{' };
   const stack = [];
-  let i = 0;
-  let line = 1;
-  while (i < src.length) {
-    const c = src[i];
-    const next = src[i + 1];
-    if (c === '\n') { line++; i++; continue; }
-    if (c === '/' && next === '/') { while (i < src.length && src[i] !== '\n') i++; continue; }
-    if (c === '/' && next === '*') { i += 2; while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) { if (src[i] === '\n') line++; i++; } i += 2; continue; }
-    if (c === '"' && src.slice(i, i + 3) === '"""') {
-      i += 3;
-      while (i < src.length && src.slice(i, i + 3) !== '"""') { if (src[i] === '\n') line++; i++; }
-      i += 3;
-      continue;
-    }
-    if (c === '"') {
-      i++;
-      while (i < src.length && src[i] !== '"') { if (src[i] === '\\') i++; if (src[i] === '\n') line++; i++; }
-      i++;
-      continue;
-    }
-    if (c === "'") {
-      i++;
-      while (i < src.length && src[i] !== "'") { if (src[i] === '\\') i++; i++; }
-      i++;
-      continue;
-    }
-    if (c === '{' || c === '(' || c === '[') { stack.push([c, line]); i++; continue; }
-    if (c === '}' || c === ')' || c === ']') {
-      const top = stack.pop();
-      if (!top || top[0] !== pairs[c]) {
-        problems.push(`括号不匹配 ${path.relative(ROOT, file)}:${line} 遇到 '${c}'，栈顶 ${top ? top[0] + '@' + top[1] : '空'}`);
-        return;
+  for (const [from, to, rangeLine] of lexKotlin(file)) {
+    let line = rangeLine;
+    for (let i = from; i < to; i++) {
+      const c = src[i];
+      if (c === '\n') { line++; continue; }
+      if (c === '{' || c === '(' || c === '[') { stack.push([c, line]); continue; }
+      if (c === '}' || c === ')' || c === ']') {
+        const top = stack.pop();
+        if (!top || top[0] !== pairs[c]) {
+          problems.push(`括号不匹配 ${path.relative(ROOT, file)}:${line} 遇到 '${c}'，栈顶 ${top ? top[0] + '@' + top[1] : '空'}`);
+          return;
+        }
       }
-      i++;
-      continue;
     }
-    i++;
   }
   if (stack.length) {
     problems.push(`括号未闭合 ${path.relative(ROOT, file)}: ${stack.slice(-3).map(([ch, ln]) => ch + '@' + ln).join(', ')}`);
   }
 }
-ktFiles.forEach(balance);
+codeFiles.forEach(balance);
 
-/* ---------------- 5. Gradle 配置体检 ---------------- */
+/* ---------------- 6. Gradle 配置体检 ---------------- */
 const gradleText = gradleFiles.map((f) => fs.readFileSync(f, 'utf8')).join('\n');
 for (const dep of ['compose-bom', 'okhttp', 'kotlinx-serialization-json', 'material3', 'activity-compose']) {
   if (!gradleText.includes(dep)) problems.push(`缺少依赖声明: ${dep}`);
@@ -228,7 +330,7 @@ console.log(`资源索引：drawable=${resIndex.drawable.size} mipmap=${resIndex
 console.log(`自定义符号：${declarations.size} 个`);
 notes.forEach((n) => console.log('NOTE  ' + n));
 if (problems.length === 0) {
-  console.log('\n✅ 全部通过：XML 良构、资源引用齐全、符号可解析、括号平衡');
+  console.log('\n✅ 全部通过：XML 良构、资源引用齐全、符号可解析、括号平衡、注释与字符串闭合');
 } else {
   console.log(`\n❌ 发现 ${problems.length} 个问题：`);
   problems.forEach((p) => console.log(' - ' + p));

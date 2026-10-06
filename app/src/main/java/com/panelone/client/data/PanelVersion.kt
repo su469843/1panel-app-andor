@@ -5,8 +5,8 @@ package com.panelone.client.data
  *
  * 关键事实（来自 1Panel 官方源码取证，2026-02）：
  *  - 1.0~1.9        ：`backend/` 单体架构，**不支持 API 密钥**；
- *  - 1.1~1.10.33    ：`backend/` 单体架构，接口前缀 **/api/v1**，实时占用 `POST /dashboard/current`；
- *  - 1.10.34 及以上、2.x：`core/`(面板) + `agent/`(主机) 架构，接口前缀 **/api/v2**（面板自身接口在 /api/v2/core），
+ *  - 1.1~1.10.33    ：`backend/` 单体架构，接口前缀 `/api/v1`，实时占用 `POST /dashboard/current`；
+ *  - 1.10.34 及以上、2.x：`core/`(面板) + `agent/`(主机) 架构，接口前缀 `/api/v2`（面板自身接口在 `/api/v2/core`），
  *                      实时占用改成 `GET /dashboard/current/{ioOption}/{netOption}`，排序字段 `createdAt`。
  *
  * 所以「面板版本号」和「接口家族」不能划等号（例：v1.10.34-lts 这个 tag 实际是新架构），
