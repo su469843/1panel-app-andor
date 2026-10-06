@@ -55,11 +55,14 @@ node tools/check-static.mjs
 ```
 
 这是随仓库提供的零依赖自检脚本：检查 XML 良构性、Android 资源引用是否齐全、Kotlin 跨包 import 是否可解析、
-括号是否平衡、块注释与字符串是否闭合。CI 里也会先跑它，再开始构建。
+括号是否平衡、块注释与字符串是否闭合、属性 setter 与同类函数是否有 JVM 签名冲突。CI 里也会先跑它，再开始构建。
 
 > ⚠️ **注释里不要写 `**/api/v1**` 这种「加粗路径」**。Kotlin 的块注释遇到 `*/` 就结束，
 > 于是 `**/api/v1**` 中间的 `*/` 会把 KDoc 提前截断，后面的正文被当成代码，
 > 编译器报一长串 `Expecting a top level declaration`。写成 `` `/api/v1` `` 即可，自检脚本会拦住这种写法。
+>
+> ⚠️ **ViewModel 里不要写 `fun setXxx(...)`**。`var xxx` 自身就会生成 `setXxx()`，
+> 两者 JVM 签名相同，编译器报 `Platform declaration clash`。改用 `fun updateXxx(...)`。
 
 ---
 

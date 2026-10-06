@@ -315,7 +315,82 @@ function balance(file) {
 }
 codeFiles.forEach(balance);
 
-/* ---------------- 6. Gradle 配置体检 ---------------- */
+/* ---------------- 6. JVM 签名冲突（属性 setter vs 同名函数） ---------------- */
+// `var keyword` 会自动生成 setKeyword()。若同一个类里又写了 fun setKeyword(...)，
+// 前端分析能过，直到 codegen 才报 "Platform declaration clash"。
+// 这类错误只能靠编译器发现，所以在自检里提前拦。
+function maskNonCode(file) {
+  // 把注释与字符串替换成空格，长度与行号保持一一对应
+  const src = fs.readFileSync(file, 'utf8');
+  const keep = new Uint8Array(src.length);
+  for (const [from, to] of lexKotlin(file)) for (let i = from; i < to; i++) keep[i] = 1;
+  const chars = src.split('');
+  for (let i = 0; i < src.length; i++) if (!keep[i] && chars[i] !== '\n') chars[i] = ' ';
+  return chars.join('');
+}
+
+function lineAt(text, idx) {
+  let n = 1;
+  for (let i = 0; i < idx; i++) if (text[i] === '\n') n++;
+  return n;
+}
+
+function matchBrace(text, open) {
+  let depth = 0;
+  for (let i = open; i < text.length; i++) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}') { depth--; if (depth === 0) return i; }
+  }
+  return -1;
+}
+
+function checkJvmClash(file) {
+  const rel = path.relative(ROOT, file);
+  const masked = maskNonCode(file);
+  const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+  const classRe = /\b(?:class|object|interface)\s+(\w+)/g;
+  let m;
+  while ((m = classRe.exec(masked)) !== null) {
+    // 从类名往后找「括号深度为 0 的 {」，兼容主构造器跨行的情况
+    let i = classRe.lastIndex;
+    let pd = 0;
+    let open = -1;
+    while (i < masked.length) {
+      const ch = masked[i];
+      if (ch === '(') pd++;
+      else if (ch === ')') pd--;
+      else if (ch === '{' && pd <= 0) { open = i; break; }
+      else if (ch === '}' && pd <= 0) break;
+      i++;
+    }
+    if (open < 0) continue;
+    const close = matchBrace(masked, open);
+    if (close < 0) continue;
+
+    const body = masked.slice(open, close);
+    const props = new Set();
+    for (const p of body.matchAll(/\bvar\s+(\w+)/g)) props.add(p[1]);
+    const fns = new Set();
+    for (const f of body.matchAll(/\bfun\s+(?:<[^>]*>\s*)?(?:[\w.<>?,\s]+\.\s*)?(\w+)\s*\(/g)) fns.add(f[1]);
+
+    for (const p of props) {
+      const candidates = [];
+      if (/^is[A-Z]/.test(p)) candidates.push('set' + p.slice(2), 'get' + p.slice(2));
+      candidates.push('set' + cap(p), 'get' + cap(p));
+      for (const fn of candidates) {
+        if (!fns.has(fn)) continue;
+        const at = open + body.indexOf('fun ' + fn);
+        problems.push(
+          `JVM 签名冲突 ${rel}:${lineAt(masked, at)} —— 属性 '${p}' 生成的 ${fn}() 与同类中的 fun ${fn}(...)  ` +
+          `签名相同，编译报 Platform declaration clash；请把函数改名为 update${cap(p)} 之类。`
+        );
+      }
+    }
+  }
+}
+ktFiles.forEach(checkJvmClash);
+
+/* ---------------- 7. Gradle 配置体检 ---------------- */
 const gradleText = gradleFiles.map((f) => fs.readFileSync(f, 'utf8')).join('\n');
 for (const dep of ['compose-bom', 'okhttp', 'kotlinx-serialization-json', 'material3', 'activity-compose']) {
   if (!gradleText.includes(dep)) problems.push(`缺少依赖声明: ${dep}`);
@@ -330,7 +405,7 @@ console.log(`资源索引：drawable=${resIndex.drawable.size} mipmap=${resIndex
 console.log(`自定义符号：${declarations.size} 个`);
 notes.forEach((n) => console.log('NOTE  ' + n));
 if (problems.length === 0) {
-  console.log('\n✅ 全部通过：XML 良构、资源引用齐全、符号可解析、括号平衡、注释与字符串闭合');
+  console.log('\n✅ 全部通过：XML 良构、资源引用齐全、符号可解析、括号平衡、注释与字符串闭合、JVM 签名无冲突');
 } else {
   console.log(`\n❌ 发现 ${problems.length} 个问题：`);
   problems.forEach((p) => console.log(' - ' + p));

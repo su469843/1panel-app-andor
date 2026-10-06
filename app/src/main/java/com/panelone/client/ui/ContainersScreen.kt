@@ -48,7 +48,7 @@ fun ContainersScreen(vm: ContainersViewModel = viewModel()) {
     Column(modifier = Modifier.fillMaxSize()) {
         OutlinedTextField(
             value = vm.keyword,
-            onValueChange = { vm.setKeyword(it) },
+            onValueChange = { vm.updateKeyword(it) },
             placeholder = { Text("按名称搜索容器") },
             singleLine = true,
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
@@ -70,17 +70,17 @@ fun ContainersScreen(vm: ContainersViewModel = viewModel()) {
         ) {
             FilterChip(
                 selected = vm.filter == "all",
-                onClick = { vm.setFilter("all") },
+                onClick = { vm.updateFilter("all") },
                 label = { Text("全部") },
             )
             FilterChip(
                 selected = vm.filter == "running",
-                onClick = { vm.setFilter("running") },
+                onClick = { vm.updateFilter("running") },
                 label = { Text("运行中") },
             )
             FilterChip(
                 selected = vm.filter == "exited",
-                onClick = { vm.setFilter("exited") },
+                onClick = { vm.updateFilter("exited") },
                 label = { Text("已停止") },
             )
         }

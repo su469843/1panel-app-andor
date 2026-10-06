@@ -47,7 +47,7 @@ fun AppsScreen(vm: AppsViewModel = viewModel()) {
     Column(modifier = Modifier.fillMaxSize()) {
         OutlinedTextField(
             value = vm.keyword,
-            onValueChange = { vm.setKeyword(it) },
+            onValueChange = { vm.updateKeyword(it) },
             placeholder = { Text("按名称搜索已安装应用") },
             singleLine = true,
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },

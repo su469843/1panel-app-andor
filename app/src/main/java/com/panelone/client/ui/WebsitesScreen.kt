@@ -47,7 +47,7 @@ fun WebsitesScreen(vm: WebsitesViewModel = viewModel()) {
     Column(modifier = Modifier.fillMaxSize()) {
         OutlinedTextField(
             value = vm.keyword,
-            onValueChange = { vm.setKeyword(it) },
+            onValueChange = { vm.updateKeyword(it) },
             placeholder = { Text("按域名搜索网站") },
             singleLine = true,
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },

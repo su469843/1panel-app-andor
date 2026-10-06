@@ -94,11 +94,13 @@ class ContainersViewModel : ViewModel() {
     private var page = 1
     private var job: Job? = null
 
-    fun setKeyword(value: String) {
+    // 注意：这两个函数不能叫 setKeyword / setFilter —— `var keyword`、`var filter`
+    // 会自动生成 setKeyword()/setFilter()，JVM 签名相同会报 Platform declaration clash。
+    fun updateKeyword(value: String) {
         keyword = value
     }
 
-    fun setFilter(value: String) {
+    fun updateFilter(value: String) {
         if (filter == value) return
         filter = value
         load(reset = true)
@@ -188,7 +190,7 @@ class AppsViewModel : ViewModel() {
     private var page = 1
     private var job: Job? = null
 
-    fun setKeyword(value: String) {
+    fun updateKeyword(value: String) {
         keyword = value
     }
 
@@ -269,7 +271,7 @@ class WebsitesViewModel : ViewModel() {
     private var page = 1
     private var job: Job? = null
 
-    fun setKeyword(value: String) {
+    fun updateKeyword(value: String) {
         keyword = value
     }
 
