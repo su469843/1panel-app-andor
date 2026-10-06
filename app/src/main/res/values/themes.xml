@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 纯 Compose 应用：XML 主题只负责窗口背景与系统栏，界面配色由 Compose 的 Material3 主题接管 -->
+    <style name="Theme.PanelOne" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/app_window_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>
